@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class AIHandler:
-    def init(self):
+    def __init__(self):
         self.api_key = GROQ_API_KEY
         self.model = GROQ_MODEL
         self.client = None
