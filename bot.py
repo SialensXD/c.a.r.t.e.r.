@@ -275,7 +275,6 @@ async def cmd_reset_user(message: types.Message):
         await message.answer("⚠️ Неверный формат user_id. Используйте число.")
 
 @dp.business_message()
-@dp.message()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or ""
