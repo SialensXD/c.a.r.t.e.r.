@@ -12,7 +12,7 @@ if not BOT_TOKEN:
 # Groq AI Configuration
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
-OWNER_NAME = os.environ.get("OWNER_NAME", "Сияленс")
+OWNER_NAME = os.environ.get("OWNER_NAME", "Сиаленс")
 
 # Optional: Database for conversation history
 DATABASE_URL = os.environ.get("DATABASE_URL")
