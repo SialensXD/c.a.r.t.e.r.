@@ -32,7 +32,7 @@ dp = Dispatcher()
 db_pool = None
 
 START_TIME = datetime.now(timezone.utc)
-APP_ROOT = Path(file).resolve().parent
+APP_ROOT = Path(__file__).resolve().parent
 
 busy_mode = False
 busy_since = None
