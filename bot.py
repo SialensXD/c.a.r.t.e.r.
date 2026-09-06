@@ -178,10 +178,10 @@ async def toggle_busy_mode(callback: types.CallbackQuery):
     await callback.answer(f"✅ Режим {status} включен!")
 
     await callback.message.edit_text(
-        f"🤖 <b>СТАТУС AI-АССИСТЕНТА</b>\n\n"
+        f"👀 <b>Привет, я из будущего, снова фиксы?</b>\n\n"
         f"Режим: {'🔴 ЗАНЯТ' if busy_mode else '🟢 ДОСТУПЕН'}\n"
         f"{'Включен: ' + busy_since.strftime('%H:%M') if busy_since else 'Отключен'}\n\n"
-        f"{'AI будет отвечать на сообщения вместо тебя.' if busy_mode else 'Ты отвечаешь на сообщения сам.'}",
+        f"{'Картер будет отвечать на сообщения вместо тебя.' if busy_mode else 'Ты отвечаешь на сообщения сам.'}",
         reply_markup=get_busy_keyboard(),
         parse_mode="HTML"
     )
@@ -205,7 +205,7 @@ async def cmd_status(message: types.Message):
     )
 
     if message.from_user.id == OWNER_USER_ID:
-        text += "\n\n" + ("🔴 AI отвечает вместо тебя" if busy_mode else "🟢 Ты отвечаешь сам")
+        text += "\n\n" + ("🔴 Картер отвечает вместо тебя" if busy_mode else "🟢 Ты отвечаешь сам")
         await message.answer(text, reply_markup=get_busy_keyboard(), parse_mode="HTML")
     else:
         await message.answer(text, parse_mode="HTML")
