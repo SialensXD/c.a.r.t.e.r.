@@ -25,6 +25,17 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.types import BotCommand
 
+# Render сам передает системную переменную PORT
+PORT = int(os.getenv("PORT", 8080))
+WEBHOOK_HOST = os.getenv("https://carter-fg98.onrender.com")
+
+if WEBHOOK_HOST:
+    # Код запуска через Webhook на порту PORT
+    ...
+else:
+    # Локальный запуск на Polling
+    dp.start_polling(bot)
+
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 bot = Bot(token=BOT_TOKEN)
