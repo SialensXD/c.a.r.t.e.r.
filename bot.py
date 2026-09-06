@@ -6,21 +6,6 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import os
-from aiohttp import web
-from aiogram.webhook.aiohttp import SimpleRequestHandler, setup_application
-
-# Render сам передает системную переменную PORT
-PORT = int(os.getenv("PORT", 8080))
-WEBHOOK_HOST = os.getenv("https://carter-fg98.onrender.com")
-
-if WEBHOOK_HOST:
-    # Код запуска через Webhook на порту PORT
-    ...
-else:
-    # Локальный запуск на Polling
-    dp.start_polling(bot)
-
 from config import (
     OWNER_USER_ID,
     BOT_TOKEN,
