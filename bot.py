@@ -323,7 +323,7 @@ async def handle_message(message: types.Message):
 
     except Exception as e:
         logging.error(f"Ошибка обработки сообщения: {e}")
-        await message.answer("⚠️ ошибка: {e}")
+        await message.answer(f"⚠️ ошибка: {e}")
 
 
 async def on_startup(dispatcher: Dispatcher):
