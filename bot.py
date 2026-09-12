@@ -384,97 +384,98 @@ async def handle_message(message: types.Message):
     history = history[-20:]
 
     # Счётчик сообщений — из БД
-message_count = 1
-if db_pool:
+    message_count = 1
+    if db_pool:
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT message_count FROM users WHERE user_id = $1", user_id
+                )
+                if row:
+                    message_count = row["message_count"]
+        except Exception as e:
+            logging.warning(f"[BIZ] message_count query failed: {e}")
+    else:
+        message_count = len(history) // 2 + 1
+
+    # --- GROQ ---
     try:
-        async with db_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT message_count FROM users WHERE user_id = $1", user_id
+        logging.info(
+            f"[BIZ] calling Groq, history_len={len(history)}, "
+            f"user={first_name}, msg_count={message_count}"
+        )
+        ai_response = await ai_handler.generate_response(
+            message.text,
+            history,
+            user_name=first_name or "незнакомец",
+            user_username=username,
+            message_count=message_count,
+            busy_status="Сэр занят",
+        )
+        logging.info(f"[BIZ] Groq OK, len={len(ai_response) if ai_response else 0}")
+    except Exception as e:
+        logging.error(f"[BIZ] Groq FAILED: {type(e).__name__}: {e}", exc_info=True)
+        ai_response = None
+
+    if not ai_response or not ai_response.strip():
+        logging.warning("[BIZ] empty AI response — using fallback text")
+        ai_response = "Секунду, Сэр сейчас не на связи. Попробуйте позже."
+
+    if len(ai_response) > 4000:
+        ai_response = ai_response[:4000] + "..."
+
+    # --- SEND ---
+    sent = False
+
+    if bcid:
+        try:
+            await bot.send_message(
+                chat_id=message.chat.id,
+                text=ai_response,
+                business_connection_id=bcid,
             )
-            if row:
-                message_count = row["message_count"]
-    except Exception as e:
-        logging.warning(f"[BIZ] message_count query failed: {e}")
-else:
-    message_count = len(history) // 2 + 1
+            sent = True
+            logging.info("[BIZ] sent via send_message + bcid")
+        except Exception as e:
+            logging.error(
+                f"[BIZ] send_message+bcid FAILED: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
 
-# --- GROQ ---
-try:
-    logging.info(
-        f"[BIZ] calling Groq, history_len={len(history)}, "
-        f"user={first_name}, msg_count={message_count}"
-    )
-    ai_response = await ai_handler.generate_response(
-        message.text,
-        history,
-        user_name=first_name or "незнакомец",
-        user_username=username,
-        message_count=message_count,
-        busy_status="Сэр занят",
-    )
-    logging.info(f"[BIZ] Groq OK, len={len(ai_response) if ai_response else 0}")
-except Exception as e:
-    logging.error(f"[BIZ] Groq FAILED: {type(e).__name__}: {e}", exc_info=True)
-    ai_response = None
+    if not sent and bcid:
+        try:
+            await message.answer(ai_response, business_connection_id=bcid)
+            sent = True
+            logging.info("[BIZ] sent via message.answer + bcid")
+        except Exception as e:
+            logging.error(
+                f"[BIZ] message.answer+bcid FAILED: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
 
-if not ai_response or not ai_response.strip():
-    logging.warning("[BIZ] empty AI response — using fallback text")
-    ai_response = "Секунду, Сэр сейчас не на связи. Попробуйте позже."
+    if not sent:
+        try:
+            await message.answer(ai_response)
+            sent = True
+            logging.info("[BIZ] sent via message.answer (no bcid)")
+        except Exception as e:
+            logging.error(
+                f"[BIZ] message.answer no-bcid FAILED: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
 
-if len(ai_response) > 4000:
-    ai_response = ai_response[:4000] + "..."
+    if sent:
+        new_history = (
+            history
+            + [
+                {"role": "user", "content": message.text},
+                {"role": "assistant", "content": ai_response},
+            ]
+        )[-20:]
+        _remember_history(user_id, new_history)
+        await save_conversation_message(user_id, "user", message.text)
+        await save_conversation_message(user_id, "assistant", ai_response)
 
-# --- SEND ---
-sent = False
-
-if bcid:
-    try:
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text=ai_response,
-            business_connection_id=bcid,
-        )
-        sent = True
-        logging.info("[BIZ] sent via send_message + bcid")
-    except Exception as e:
-        logging.error(
-            f"[BIZ] send_message+bcid FAILED: {type(e).__name__}: {e}",
-            exc_info=True,
-        )
-
-if not sent and bcid:
-    try:
-        await message.answer(ai_response, business_connection_id=bcid)
-        sent = True
-        logging.info("[BIZ] sent via message.answer + bcid")
-    except Exception as e:
-        logging.error(
-            f"[BIZ] message.answer+bcid FAILED: {type(e).__name__}: {e}",
-            exc_info=True,
-        )
-
-if not sent:
-    try:
-        await message.answer(ai_response)
-        sent = True
-        logging.info("[BIZ] sent via message.answer (no bcid)")
-    except Exception as e:
-        logging.error(
-            f"[BIZ] message.answer no-bcid FAILED: {type(e).__name__}: {e}",
-            exc_info=True,
-        )
-
-if sent:
-    new_history = (
-        history
-        + [
-            {"role": "user", "content": message.text},
-            {"role": "assistant", "content": ai_response},
-        ]
-    )[-20:]
-    _remember_history(user_id, new_history)
-    await save_conversation_message(user_id, "user", message.text)
-    await save_conversation_message(user_id, "assistant", ai_response)
 
 async def on_startup(dispatcher: Dispatcher):
     await init_db()
