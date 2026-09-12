@@ -383,8 +383,7 @@ async def handle_message(message: types.Message):
         history = list(conversation_history.get(user_id, []))
     history = history[-20:]
 
-    # --- GROQ ---
-    message_count = 1
+message_count = 1
 if db_pool:
     try:
         async with db_pool.acquire() as conn:
@@ -416,13 +415,6 @@ try:
 except Exception as e:
     logging.error(f"[BIZ] Groq FAILED: {type(e).__name__}: {e}", exc_info=True)
     ai_response = None
-
-    if not ai_response or not ai_response.strip():
-        logging.warning("[BIZ] empty AI response — using fallback text")
-        ai_response = "Секунду, Сэр сейчас не на связи. Попробуйте позже."
-
-    if len(ai_response) > 4000:
-        ai_response = ai_response[:4000] + "..."
 
     # --- SEND ---
     sent = False
