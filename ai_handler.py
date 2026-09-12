@@ -89,8 +89,8 @@ class AIHandler:
             response = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=500,
-                temperature=0.7,
+                max_tokens=750,
+                temperature=0.8,
             )
         except Exception as e:
             logger.error(f"Groq API error: {e}")
