@@ -26,6 +26,8 @@ PORT = int(os.environ.get("PORT", "10000"))
 # Owner configuration
 OWNER_USER_ID = int(os.environ.get("OWNER_USER_ID", "7857165309"))
 
+#часовой пояс
+TZ_OFFSET_HOURS = int(os.environ.get("TZ_OFFSET_HOURS", "3"))
 
 def webhook_url() -> str | None:
     """Return the public webhook URL when the service is configured for webhooks."""
