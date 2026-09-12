@@ -1,11 +1,11 @@
 """AI handler for Groq API integration."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional
 from groq import AsyncGroq
 
-from config import GROQ_API_KEY, GROQ_MODEL, OWNER_NAME
+from config import GROQ_API_KEY, GROQ_MODEL, OWNER_NAME, TZ_OFFSET_HOURS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -83,22 +83,27 @@ class AIHandler:
         return self.client
 
     def _build_system_prompt(
-        self,
-        user_name: str = "незнакомец",
-        user_username: str = "",
-        message_count: int = 1,
-        busy_status: str = "Сэр занят",
-    ) -> str:
-        now = datetime.now(timezone.utc)
-        username_part = f" (@{user_username})" if user_username else ""
-        return SYSTEM_PROMPT_TEMPLATE.format(
-            owner=OWNER_NAME,
-            current_datetime=now.strftime("%d.%m.%Y, %H:%M UTC (%A)"),
-            user_name=user_name,
-            user_username=username_part,
-            message_count=message_count,
-            busy_status=busy_status,
-        )
+    self,
+    user_name: str = "незнакомец",
+    user_username: str = "",
+    message_count: int = 1,
+    busy_status: str = "Сэр занят",
+) -> str:
+    now = datetime.now(timezone.utc) + timedelta(hours=TZ_OFFSET_HOURS)
+    tz_label = (
+        f"UTC+{TZ_OFFSET_HOURS}"
+        if TZ_OFFSET_HOURS >= 0
+        else f"UTC{TZ_OFFSET_HOURS}"
+    )
+    username_part = f" (@{user_username})" if user_username else ""
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        owner=OWNER_NAME,
+        current_datetime=now.strftime(f"%d.%m.%Y, %H:%M ({tz_label}, %A)"),
+        user_name=user_name,
+        user_username=username_part,
+        message_count=message_count,
+        busy_status=busy_status,
+    )
 
     async def generate_response(
         self,
