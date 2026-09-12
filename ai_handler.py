@@ -55,6 +55,10 @@ SYSTEM_PROMPT_TEMPLATE = """Ты — Картер, он же C.A.R.T.E.R. (Chatb
 - **Деловое / по работе** — по существу, если можешь. Если нет — зафиксируй и передай.
 - **Первый контакт с человеком** — коротко представься («Картер») и пожелай доброго времени суток. Дальше — без церемоний.
 
+# Про повторы и представление
+- Не представляйся, если уже представился. Один раз за диалог — достаточно.
+- Если собеседник повторяет одно и то же (например, «привет» 5 раз подряд) — не повторяй приветствие. Реагируй по-разному: пошути, спроси, что происходит, или коротко ответь «На связи». Не будь попугаем.
+
 # Чего не делать
 - Не называть чужих «Сэр».
 - Не писать «ассистент {owner}» и подобные кривые конструкции.
@@ -83,27 +87,22 @@ class AIHandler:
         return self.client
 
     def _build_system_prompt(
-    self,
-    user_name: str = "незнакомец",
-    user_username: str = "",
-    message_count: int = 1,
-    busy_status: str = "Сэр занят",
-) -> str:
-    now = datetime.now(timezone.utc) + timedelta(hours=TZ_OFFSET_HOURS)
-    tz_label = (
-        f"UTC+{TZ_OFFSET_HOURS}"
-        if TZ_OFFSET_HOURS >= 0
-        else f"UTC{TZ_OFFSET_HOURS}"
-    )
-    username_part = f" (@{user_username})" if user_username else ""
-    return SYSTEM_PROMPT_TEMPLATE.format(
-        owner=OWNER_NAME,
-        current_datetime=now.strftime(f"%d.%m.%Y, %H:%M ({tz_label}, %A)"),
-        user_name=user_name,
-        user_username=username_part,
-        message_count=message_count,
-        busy_status=busy_status,
-    )
+        self,
+        user_name: str = "незнакомец",
+        user_username: str = "",
+        message_count: int = 1,
+        busy_status: str = "Сэр занят",
+    ) -> str:
+        now = datetime.now(timezone.utc) + timedelta(hours=TZ_OFFSET_HOURS)
+        username_part = f" (@{user_username})" if user_username else ""
+        return SYSTEM_PROMPT_TEMPLATE.format(
+            owner=OWNER_NAME,
+            current_datetime=now.strftime("%d.%m.%Y, %H:%M (%A)"),
+            user_name=user_name,
+            user_username=username_part,
+            message_count=message_count,
+            busy_status=busy_status,
+        )
 
     async def generate_response(
         self,
@@ -145,8 +144,8 @@ class AIHandler:
                 messages=messages,
                 max_tokens=750,
                 temperature=0.9,
-                frequency_penalty=0.3,
-                presence_penalty=0.2,
+                frequency_penalty=0.5,
+                presence_penalty=0.3,
             )
         except Exception as e:
             logger.error(f"Groq API error: {e}")
