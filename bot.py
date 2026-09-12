@@ -384,13 +384,38 @@ async def handle_message(message: types.Message):
     history = history[-20:]
 
     # --- GROQ ---
+    message_count = 1
+if db_pool:
     try:
-        logging.info(f"[BIZ] calling Groq, history_len={len(history)}")
-        ai_response = await ai_handler.generate_response(message.text, history)
-        logging.info(f"[BIZ] Groq OK, len={len(ai_response) if ai_response else 0}")
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT message_count FROM users WHERE user_id = $1", user_id
+            )
+            if row:
+                message_count = row["message_count"]
     except Exception as e:
-        logging.error(f"[BIZ] Groq FAILED: {type(e).__name__}: {e}", exc_info=True)
-        ai_response = None
+        logging.warning(f"[BIZ] message_count query failed: {e}")
+else:
+    message_count = len(history) // 2 + 1
+
+# --- GROQ ---
+try:
+    logging.info(
+        f"[BIZ] calling Groq, history_len={len(history)}, "
+        f"user={first_name}, msg_count={message_count}"
+    )
+    ai_response = await ai_handler.generate_response(
+        message.text,
+        history,
+        user_name=first_name or "незнакомец",
+        user_username=username,
+        message_count=message_count,
+        busy_status="Сэр занят",
+    )
+    logging.info(f"[BIZ] Groq OK, len={len(ai_response) if ai_response else 0}")
+except Exception as e:
+    logging.error(f"[BIZ] Groq FAILED: {type(e).__name__}: {e}", exc_info=True)
+    ai_response = None
 
     if not ai_response or not ai_response.strip():
         logging.warning("[BIZ] empty AI response — using fallback text")
