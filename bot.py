@@ -383,6 +383,7 @@ async def handle_message(message: types.Message):
         history = list(conversation_history.get(user_id, []))
     history = history[-20:]
 
+    # Счётчик сообщений — из БД
 message_count = 1
 if db_pool:
     try:
@@ -416,57 +417,64 @@ except Exception as e:
     logging.error(f"[BIZ] Groq FAILED: {type(e).__name__}: {e}", exc_info=True)
     ai_response = None
 
-    # --- SEND ---
-    sent = False
+if not ai_response or not ai_response.strip():
+    logging.warning("[BIZ] empty AI response — using fallback text")
+    ai_response = "Секунду, Сэр сейчас не на связи. Попробуйте позже."
 
-    if bcid:
-        try:
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text=ai_response,
-                business_connection_id=bcid,
-            )
-            sent = True
-            logging.info("[BIZ] sent via send_message + bcid")
-        except Exception as e:
-            logging.error(
-                f"[BIZ] send_message+bcid FAILED: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
+if len(ai_response) > 4000:
+    ai_response = ai_response[:4000] + "..."
 
-    if not sent and bcid:
-        try:
-            await message.answer(ai_response, business_connection_id=bcid)
-            sent = True
-            logging.info("[BIZ] sent via message.answer + bcid")
-        except Exception as e:
-            logging.error(
-                f"[BIZ] message.answer+bcid FAILED: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
+# --- SEND ---
+sent = False
 
-    if not sent:
-        try:
-            await message.answer(ai_response)
-            sent = True
-            logging.info("[BIZ] sent via message.answer (no bcid)")
-        except Exception as e:
-            logging.error(
-                f"[BIZ] message.answer no-bcid FAILED: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
+if bcid:
+    try:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=ai_response,
+            business_connection_id=bcid,
+        )
+        sent = True
+        logging.info("[BIZ] sent via send_message + bcid")
+    except Exception as e:
+        logging.error(
+            f"[BIZ] send_message+bcid FAILED: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
 
-    if sent:
-        new_history = (
-            history
-            + [
-                {"role": "user", "content": message.text},
-                {"role": "assistant", "content": ai_response},
-            ]
-        )[-20:]
-        _remember_history(user_id, new_history)
-        await save_conversation_message(user_id, "user", message.text)
-        await save_conversation_message(user_id, "assistant", ai_response)
+if not sent and bcid:
+    try:
+        await message.answer(ai_response, business_connection_id=bcid)
+        sent = True
+        logging.info("[BIZ] sent via message.answer + bcid")
+    except Exception as e:
+        logging.error(
+            f"[BIZ] message.answer+bcid FAILED: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
+
+if not sent:
+    try:
+        await message.answer(ai_response)
+        sent = True
+        logging.info("[BIZ] sent via message.answer (no bcid)")
+    except Exception as e:
+        logging.error(
+            f"[BIZ] message.answer no-bcid FAILED: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
+
+if sent:
+    new_history = (
+        history
+        + [
+            {"role": "user", "content": message.text},
+            {"role": "assistant", "content": ai_response},
+        ]
+    )[-20:]
+    _remember_history(user_id, new_history)
+    await save_conversation_message(user_id, "user", message.text)
+    await save_conversation_message(user_id, "assistant", ai_response)
 
 async def on_startup(dispatcher: Dispatcher):
     await init_db()
