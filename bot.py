@@ -378,10 +378,10 @@ async def handle_message(message: types.Message):
         logging.warning(f"[BIZ] send_chat_action failed: {e}")
 
     if db_pool:
-        history = await load_conversation_history(user_id, limit=20)
+        history = await load_conversation_history(user_id, limit=10)
     else:
         history = list(conversation_history.get(user_id, []))
-    history = history[-20:]
+    history = history[-10:]
 
     # Счётчик сообщений — из БД
     message_count = 1
@@ -398,11 +398,14 @@ async def handle_message(message: types.Message):
     else:
         message_count = len(history) // 2 + 1
 
-    # --- GROQ ---
+    # --- GROQ (с ретраем) ---
+ai_response = None
+for attempt in range(2):  # 2 попытки
     try:
         logging.info(
-            f"[BIZ] calling Groq, history_len={len(history)}, "
-            f"user={first_name}, msg_count={message_count}"
+            f"[BIZ] calling Groq, attempt={attempt + 1}, "
+            f"history_len={len(history)}, user={first_name!r}, "
+            f"username={username!r}, msg_count={message_count}"
         )
         ai_response = await ai_handler.generate_response(
             message.text,
@@ -412,17 +415,23 @@ async def handle_message(message: types.Message):
             message_count=message_count,
             busy_status="Сэр занят",
         )
-        logging.info(f"[BIZ] Groq OK, len={len(ai_response) if ai_response else 0}")
+        if ai_response and ai_response.strip():
+            logging.info(f"[BIZ] Groq OK, len={len(ai_response)}")
+            break
+        else:
+            logging.warning(f"[BIZ] Groq empty response on attempt {attempt + 1}")
     except Exception as e:
-        logging.error(f"[BIZ] Groq FAILED: {type(e).__name__}: {e}", exc_info=True)
-        ai_response = None
+        logging.error(
+            f"[BIZ] Groq FAILED attempt {attempt + 1}: "
+            f"{type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        if attempt == 0:
+            await asyncio.sleep(2)  # пауза перед второй попыткой
 
-    if not ai_response or not ai_response.strip():
-        logging.warning("[BIZ] empty AI response — using fallback text")
-        ai_response = "Секунду, Сэр сейчас не на связи. Попробуйте позже."
-
-    if len(ai_response) > 4000:
-        ai_response = ai_response[:4000] + "..."
+if not ai_response or not ai_response.strip():
+    logging.warning("[BIZ] empty AI response — using fallback text")
+    ai_response = "Случилась ошибка! Что-то случилось с моими серверами..."
 
     # --- SEND ---
     sent = False
