@@ -1,11 +1,11 @@
-"""AI handler — Картер, личный ассистент Влада."""
+"""AI handler — Картер через Gemini."""
 
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional
-from groq import AsyncGroq
+from openai import AsyncOpenAI
 
-from config import GROQ_API_KEY, GROQ_MODEL, OWNER_NAME, TZ_OFFSET_HOURS
+from config import GEMINI_API_KEY, GEMINI_MODEL, OWNER_NAME, TZ_OFFSET_HOURS
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,7 +32,6 @@ SYSTEM_PROMPT_TEMPLATE = """Ты — Картер. ИИ-ассистент Вл�
 - Помогаешь с кодом (Python, HTML), учёбой, задачами.
 - Объясняешь сложное простым языком.
 - Придумываешь идеи, обсуждаешь варианты.
-- Ищешь в интернете, если нужны актуальные данные.
 - Можешь просто поговорить, если Сэру скучно.
 
 # Чего не делаешь
@@ -45,20 +44,19 @@ SYSTEM_PROMPT_TEMPLATE = """Ты — Картер. ИИ-ассистент Вл�
 
 class AIHandler:
     def __init__(self):
-        self.api_key = GROQ_API_KEY
-        self.model = GROQ_MODEL
-        self.client: Optional[AsyncGroq] = None
-        self.web_search_enabled_models = {
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
-        }
+        self.api_key = GEMINI_API_KEY
+        self.model = GEMINI_MODEL
+        self.client: Optional[AsyncOpenAI] = None
 
-    async def get_client(self) -> Optional[AsyncGroq]:
+    async def get_client(self) -> Optional[AsyncOpenAI]:
         if self.client is None:
             if not self.api_key:
-                logger.warning("GROQ_API_KEY not set")
+                logger.warning("GEMINI_API_KEY not set")
                 return None
-            self.client = AsyncGroq(api_key=self.api_key)
+            self.client = AsyncOpenAI(
+                api_key=self.api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            )
         return self.client
 
     def _build_system_prompt(self, message_count: int = 1) -> str:
@@ -69,19 +67,6 @@ class AIHandler:
             message_count=message_count,
         )
 
-    async def _call_groq(self, client, messages: List[Dict], with_web_search: bool):
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": 550,
-            "temperature": 0.75,
-            "frequency_penalty": 0.4,
-            "presence_penalty": 0.3,
-        }
-        if with_web_search:
-            kwargs["tools"] = [{"type": "browser_search"}]
-        return await client.chat.completions.create(**kwargs)
-
     async def generate_response(
         self,
         user_message: str,
@@ -90,7 +75,7 @@ class AIHandler:
     ) -> str:
         client = await self.get_client()
         if not client:
-            raise RuntimeError("AI не настроен. Проверьте GROQ_API_KEY.")
+            raise RuntimeError("Gemini не настроен. Проверьте GEMINI_API_KEY.")
 
         system_prompt = self._build_system_prompt(message_count=message_count)
 
@@ -107,18 +92,20 @@ class AIHandler:
         if not last_is_same:
             messages.append({"role": "user", "content": user_message})
 
-        use_web = self.model in self.web_search_enabled_models
-        response = None
-
-        if use_web:
-            try:
-                response = await self._call_groq(client, messages, with_web_search=True)
-                logger.info("[GROQ] ответ с browser_search")
-            except Exception as e:
-                logger.warning(f"[GROQ] browser_search упал ({e}), обычный режим")
-
-        if response is None:
-            response = await self._call_groq(client, messages, with_web_search=False)
+        try:
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=700,
+                temperature=0.75,
+            )
+            logger.info(
+                f"[GEMINI] OK, model={self.model}, "
+                f"msgs={len(messages)}"
+            )
+        except Exception as e:
+            logger.error(f"[GEMINI] FAILED: {type(e).__name__}: {e}")
+            raise
 
         content = response.choices[0].message.content
         return content or "Секунду, Сэр. Что-то не отвечает."
