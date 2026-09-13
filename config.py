@@ -9,9 +9,12 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is required")
 
-# Groq AI Configuration
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+# Gemini AI Configuration
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY is required")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
 OWNER_NAME = os.environ.get("OWNER_NAME", "Сиаленс")
 
 # Optional: Database for conversation history
@@ -26,8 +29,9 @@ PORT = int(os.environ.get("PORT", "10000"))
 # Owner configuration
 OWNER_USER_ID = int(os.environ.get("OWNER_USER_ID", "7857165309"))
 
-#часовой пояс
+# Часовой пояс
 TZ_OFFSET_HOURS = int(os.environ.get("TZ_OFFSET_HOURS", "3"))
+
 
 def webhook_url() -> str | None:
     """Return the public webhook URL when the service is configured for webhooks."""
