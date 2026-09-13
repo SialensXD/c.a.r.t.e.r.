@@ -344,11 +344,14 @@ async def cmd_reset_user(message: types.Message):
 @dp.business_message()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
+    username = message.from_user.username or ""
+    first_name = message.from_user.first_name
+    is_owner = (user_id == OWNER_USER_ID)
 
-    # Картер отвечает только Владу
-    if user_id != OWNER_USER_ID:
-        logging.info(f"[BIZ] skip: not owner ({user_id})")
-        return
+    logging.info(
+        f"[BIZ] user={user_id} bcid={message.business_connection_id} "
+        f"chat={message.chat.id} is_owner={is_owner} text={message.text!r}"
+    )
 
     # Команды не трогаем
     if message.text and message.text.startswith("/"):
@@ -358,11 +361,13 @@ async def handle_message(message: types.Message):
         logging.info("[BIZ] skip: no text")
         return
 
-    logging.info(f"[BIZ] owner message: {message.text!r}")
+    # Владельцу — всегда. Остальным — только в busy_mode.
+    if not is_owner and not busy_mode:
+        logging.info("[BIZ] skip: not owner and busy_mode=False")
+        return
 
     bcid = message.business_connection_id
 
-    # Индикатор «печатает»
     try:
         await bot.send_chat_action(
             chat_id=message.chat.id,
@@ -377,25 +382,28 @@ async def handle_message(message: types.Message):
     history = list(conversation_history.get(history_key, []))[-10:]
     message_count = len(history) // 2 + 1
 
-    # --- GROQ с ретраем ---
+    # --- GEMINI с ретраем ---
     ai_response = None
     for attempt in range(2):
         try:
             logging.info(
-                f"[BIZ] calling Gemeni, attempt={attempt + 1}, "
-                f"history_len={len(history)}, msg_count={message_count}"
+                f"[BIZ] calling Gemini, attempt={attempt + 1}, "
+                f"is_owner={is_owner}, history_len={len(history)}, "
+                f"msg_count={message_count}"
             )
             ai_response = await ai_handler.generate_response(
                 message.text,
                 history,
                 message_count=message_count,
+                is_owner=is_owner,
+                user_name=first_name or "незнакомец",
             )
             if ai_response and ai_response.strip():
-                logging.info(f"[BIZ] Gemeni OK, len={len(ai_response)}")
+                logging.info(f"[BIZ] Gemini OK, len={len(ai_response)}")
                 break
         except Exception as e:
             logging.error(
-                f"[BIZ] Gemeni FAILED attempt {attempt + 1}: "
+                f"[BIZ] Gemini FAILED attempt {attempt + 1}: "
                 f"{type(e).__name__}: {e}",
                 exc_info=True,
             )
