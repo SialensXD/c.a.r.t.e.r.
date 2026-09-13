@@ -399,39 +399,44 @@ async def handle_message(message: types.Message):
         message_count = len(history) // 2 + 1
 
     # --- GROQ (с ретраем) ---
-ai_response = None
-for attempt in range(2):  # 2 попытки
-    try:
-        logging.info(
-            f"[BIZ] calling Groq, attempt={attempt + 1}, "
-            f"history_len={len(history)}, user={first_name!r}, "
-            f"username={username!r}, msg_count={message_count}"
-        )
-        ai_response = await ai_handler.generate_response(
-            message.text,
-            history,
-            user_name=first_name or "незнакомец",
-            user_username=username,
-            message_count=message_count,
-            busy_status="Сэр занят",
-        )
-        if ai_response and ai_response.strip():
-            logging.info(f"[BIZ] Groq OK, len={len(ai_response)}")
-            break
-        else:
-            logging.warning(f"[BIZ] Groq empty response on attempt {attempt + 1}")
-    except Exception as e:
-        logging.error(
-            f"[BIZ] Groq FAILED attempt {attempt + 1}: "
-            f"{type(e).__name__}: {e}",
-            exc_info=True,
-        )
-        if attempt == 0:
-            await asyncio.sleep(2)  # пауза перед второй попыткой
+    ai_response = None
+    for attempt in range(2):  # 2 попытки
+        try:
+            logging.info(
+                f"[BIZ] calling Groq, attempt={attempt + 1}, "
+                f"history_len={len(history)}, user={first_name!r}, "
+                f"username={username!r}, msg_count={message_count}"
+            )
+            ai_response = await ai_handler.generate_response(
+                message.text,
+                history,
+                user_name=first_name or "незнакомец",
+                user_username=username,
+                message_count=message_count,
+                busy_status="Сэр занят",
+            )
+            if ai_response and ai_response.strip():
+                logging.info(f"[BIZ] Groq OK, len={len(ai_response)}")
+                break
+            else:
+                logging.warning(
+                    f"[BIZ] Groq empty response on attempt {attempt + 1}"
+                )
+        except Exception as e:
+            logging.error(
+                f"[BIZ] Groq FAILED attempt {attempt + 1}: "
+                f"{type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            if attempt == 0:
+                await asyncio.sleep(2)  # пауза перед второй попыткой
 
-if not ai_response or not ai_response.strip():
-    logging.warning("[BIZ] empty AI response — using fallback text")
-    ai_response = "Случилась ошибка! Что-то случилось с моими серверами..."
+    if not ai_response or not ai_response.strip():
+        logging.warning("[BIZ] empty AI response — using fallback text")
+        ai_response = "Случилась ошибка! Что-то случилось с моими серверами..."
+
+    if len(ai_response) > 4000:
+        ai_response = ai_response[:4000] + "..."
 
     # --- SEND ---
     sent = False
@@ -480,7 +485,7 @@ if not ai_response or not ai_response.strip():
                 {"role": "user", "content": message.text},
                 {"role": "assistant", "content": ai_response},
             ]
-        )[-20:]
+        )[-10:]
         _remember_history(user_id, new_history)
         await save_conversation_message(user_id, "user", message.text)
         await save_conversation_message(user_id, "assistant", ai_response)
