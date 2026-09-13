@@ -154,7 +154,7 @@ class AIHandler:
 
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,
-            tools=[types.Tool(google_search=types.GoogleSearch())],
+            #tools=[types.Tool(google_search=types.GoogleSearch())],
             temperature=0.75,
             max_output_tokens=2500,
         )
