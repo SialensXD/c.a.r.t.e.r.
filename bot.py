@@ -346,26 +346,31 @@ async def handle_message(message: types.Message):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     first_name = message.from_user.first_name
+    is_owner = (user_id == OWNER_USER_ID)
 
     logging.info(
         f"[BIZ] user={user_id} bcid={message.business_connection_id} "
-        f"chat={message.chat.id} text={message.text!r}"
+        f"chat={message.chat.id} is_owner={is_owner} text={message.text!r}"
     )
 
-    if user_id == OWNER_USER_ID:
-        logging.info("[BIZ] skip: owner")
-        return
+    # Команды не трогаем
     if message.text and message.text.startswith("/"):
         logging.info("[BIZ] skip: command")
         return
-    if not busy_mode:
-        logging.info("[BIZ] skip: busy_mode=False")
-        return
+
+    # Стикеры, фото, голосовые — пропускаем
     if not message.text:
         logging.info("[BIZ] skip: no text")
         return
 
-    await save_user_message(user_id, username, first_name)
+    # Не-владельцу отвечаем только в busy_mode. Владельцу — всегда.
+    if not is_owner and not busy_mode:
+        logging.info("[BIZ] skip: busy_mode=False and not owner")
+        return
+
+    # Статистику пишем только по чужим
+    if not is_owner:
+        await save_user_message(user_id, username, first_name)
 
     bcid = message.business_connection_id
 
@@ -378,15 +383,18 @@ async def handle_message(message: types.Message):
     except Exception as e:
         logging.warning(f"[BIZ] send_chat_action failed: {e}")
 
-    if db_pool:
+    # История: ключ — chat_id (одинаковый для владельца и собеседника в одном чате)
+    history_key = message.chat.id
+
+    if db_pool and not is_owner:
         history = await load_conversation_history(user_id, limit=10)
     else:
-        history = list(conversation_history.get(user_id, []))
+        history = list(conversation_history.get(history_key, []))
     history = history[-10:]
 
-    # Счётчик сообщений — из БД
+    # Счётчик сообщений
     message_count = 1
-    if db_pool:
+    if db_pool and not is_owner:
         try:
             async with db_pool.acquire() as conn:
                 row = await conn.fetchrow(
@@ -401,28 +409,26 @@ async def handle_message(message: types.Message):
 
     # --- GROQ (с ретраем) ---
     ai_response = None
-    for attempt in range(2):  # 2 попытки
+    for attempt in range(2):
         try:
             logging.info(
-                f"[BIZ] calling Groq, attempt={attempt + 1}, "
-                f"history_len={len(history)}, user={first_name!r}, "
-                f"username={username!r}, msg_count={message_count}"
+                f"[BIZ] calling Groq, attempt={attempt + 1}, is_owner={is_owner}, "
+                f"history_len={len(history)}, msg_count={message_count}"
             )
             ai_response = await ai_handler.generate_response(
                 message.text,
                 history,
-                user_name=first_name or "незнакомец",
+                user_name=first_name or ("создатель" if is_owner else "смертный"),
                 user_username=username,
                 message_count=message_count,
-                busy_status="Сэр занят",
+                busy_status="Влад отсутствует" if not is_owner else "создатель на связи",
+                is_owner=is_owner,
             )
             if ai_response and ai_response.strip():
                 logging.info(f"[BIZ] Groq OK, len={len(ai_response)}")
                 break
             else:
-                logging.warning(
-                    f"[BIZ] Groq empty response on attempt {attempt + 1}"
-                )
+                logging.warning(f"[BIZ] Groq empty response on attempt {attempt + 1}")
         except Exception as e:
             logging.error(
                 f"[BIZ] Groq FAILED attempt {attempt + 1}: "
@@ -430,11 +436,28 @@ async def handle_message(message: types.Message):
                 exc_info=True,
             )
             if attempt == 0:
-                await asyncio.sleep(2)  # пауза перед второй попыткой
+                await asyncio.sleep(2)
 
     if not ai_response or not ai_response.strip():
         logging.warning("[BIZ] empty AI response — using fallback text")
         ai_response = "Случилась ошибка! Что-то случилось с моими серверами..."
+
+    # Дедупликация повторяющихся предложений внутри одного ответа
+    sentences = [
+        s.strip()
+        for s in ai_response.replace("!", ".").replace("?", ".").split(".")
+        if s.strip()
+    ]
+    seen = set()
+    unique = []
+    for s in sentences:
+        key = s.lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(s)
+    if len(unique) < len(sentences):
+        ai_response = ". ".join(unique) + "."
+        logging.info(f"[BIZ] dedup applied, {len(sentences)} -> {len(unique)}")
 
     if len(ai_response) > 4000:
         ai_response = ai_response[:4000] + "..."
@@ -487,9 +510,12 @@ async def handle_message(message: types.Message):
                 {"role": "assistant", "content": ai_response},
             ]
         )[-10:]
-        _remember_history(user_id, new_history)
-        await save_conversation_message(user_id, "user", message.text)
-        await save_conversation_message(user_id, "assistant", ai_response)
+        _remember_history(history_key, new_history)
+
+        # В БД пишем только чужие сообщения
+        if not is_owner:
+            await save_conversation_message(user_id, "user", message.text)
+            await save_conversation_message(user_id, "assistant", ai_response)
 
 
 async def on_startup(dispatcher: Dispatcher):
