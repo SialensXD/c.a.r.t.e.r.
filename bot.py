@@ -382,7 +382,7 @@ async def handle_message(message: types.Message):
     for attempt in range(2):
         try:
             logging.info(
-                f"[BIZ] calling Groq, attempt={attempt + 1}, "
+                f"[BIZ] calling Gemeni, attempt={attempt + 1}, "
                 f"history_len={len(history)}, msg_count={message_count}"
             )
             ai_response = await ai_handler.generate_response(
@@ -391,11 +391,11 @@ async def handle_message(message: types.Message):
                 message_count=message_count,
             )
             if ai_response and ai_response.strip():
-                logging.info(f"[BIZ] Groq OK, len={len(ai_response)}")
+                logging.info(f"[BIZ] Gemeni OK, len={len(ai_response)}")
                 break
         except Exception as e:
             logging.error(
-                f"[BIZ] Groq FAILED attempt {attempt + 1}: "
+                f"[BIZ] Gemeni FAILED attempt {attempt + 1}: "
                 f"{type(e).__name__}: {e}",
                 exc_info=True,
             )
