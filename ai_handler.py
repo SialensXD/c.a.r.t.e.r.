@@ -73,7 +73,7 @@ class AIHandler:
         kwargs = {
             "model": self.model,
             "messages": messages,
-            "max_tokens": 700,
+            "max_tokens": 550,
             "temperature": 0.75,
             "frequency_penalty": 0.4,
             "presence_penalty": 0.3,
