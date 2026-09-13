@@ -344,36 +344,25 @@ async def cmd_reset_user(message: types.Message):
 @dp.business_message()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
-    username = message.from_user.username or ""
-    first_name = message.from_user.first_name
-    is_owner = (user_id == OWNER_USER_ID)
 
-    logging.info(
-        f"[BIZ] user={user_id} bcid={message.business_connection_id} "
-        f"chat={message.chat.id} is_owner={is_owner} text={message.text!r}"
-    )
+    # Картер отвечает только Владу
+    if user_id != OWNER_USER_ID:
+        logging.info(f"[BIZ] skip: not owner ({user_id})")
+        return
 
     # Команды не трогаем
     if message.text and message.text.startswith("/"):
-        logging.info("[BIZ] skip: command")
         return
 
-    # Стикеры, фото, голосовые — пропускаем
     if not message.text:
         logging.info("[BIZ] skip: no text")
         return
 
-    # Не-владельцу отвечаем только в busy_mode. Владельцу — всегда.
-    if not is_owner and not busy_mode:
-        logging.info("[BIZ] skip: busy_mode=False and not owner")
-        return
-
-    # Статистику пишем только по чужим
-    if not is_owner:
-        await save_user_message(user_id, username, first_name)
+    logging.info(f"[BIZ] owner message: {message.text!r}")
 
     bcid = message.business_connection_id
 
+    # Индикатор «печатает»
     try:
         await bot.send_chat_action(
             chat_id=message.chat.id,
@@ -383,52 +372,27 @@ async def handle_message(message: types.Message):
     except Exception as e:
         logging.warning(f"[BIZ] send_chat_action failed: {e}")
 
-    # История: ключ — chat_id (одинаковый для владельца и собеседника в одном чате)
+    # История по chat_id
     history_key = message.chat.id
+    history = list(conversation_history.get(history_key, []))[-10:]
+    message_count = len(history) // 2 + 1
 
-    if db_pool and not is_owner:
-        history = await load_conversation_history(user_id, limit=10)
-    else:
-        history = list(conversation_history.get(history_key, []))
-    history = history[-10:]
-
-    # Счётчик сообщений
-    message_count = 1
-    if db_pool and not is_owner:
-        try:
-            async with db_pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    "SELECT message_count FROM users WHERE user_id = $1", user_id
-                )
-                if row:
-                    message_count = row["message_count"]
-        except Exception as e:
-            logging.warning(f"[BIZ] message_count query failed: {e}")
-    else:
-        message_count = len(history) // 2 + 1
-
-    # --- GROQ (с ретраем) ---
+    # --- GROQ с ретраем ---
     ai_response = None
     for attempt in range(2):
         try:
             logging.info(
-                f"[BIZ] calling Groq, attempt={attempt + 1}, is_owner={is_owner}, "
+                f"[BIZ] calling Groq, attempt={attempt + 1}, "
                 f"history_len={len(history)}, msg_count={message_count}"
             )
             ai_response = await ai_handler.generate_response(
                 message.text,
                 history,
-                user_name=first_name or ("создатель" if is_owner else "смертный"),
-                user_username=username,
                 message_count=message_count,
-                busy_status="Влад отсутствует" if not is_owner else "создатель на связи",
-                is_owner=is_owner,
             )
             if ai_response and ai_response.strip():
                 logging.info(f"[BIZ] Groq OK, len={len(ai_response)}")
                 break
-            else:
-                logging.warning(f"[BIZ] Groq empty response on attempt {attempt + 1}")
         except Exception as e:
             logging.error(
                 f"[BIZ] Groq FAILED attempt {attempt + 1}: "
@@ -439,30 +403,46 @@ async def handle_message(message: types.Message):
                 await asyncio.sleep(2)
 
     if not ai_response or not ai_response.strip():
-        logging.warning("[BIZ] empty AI response — using fallback text")
-        ai_response = "Случилась ошибка! Что-то случилось с моими серверами..."
+        ai_response = "Секунду, Сэр. Связь пропала."
 
-    # Дедупликация повторяющихся предложений внутри одного ответа
-    sentences = [
-        s.strip()
-        for s in ai_response.replace("!", ".").replace("?", ".").split(".")
-        if s.strip()
-    ]
-    seen = set()
+    # Дедупликация предложений внутри одного ответа
+    import re as _re
+
+    def _words(s: str) -> set:
+        return {w for w in _re.findall(r"\w+", s.lower()) if len(w) > 3}
+
+    sentences = [s.strip() for s in _re.split(r"[.!?]+", ai_response) if s.strip()]
+    seen_keys = set()
+    seen_word_sets = []
     unique = []
     for s in sentences:
         key = s.lower()
-        if key not in seen:
-            seen.add(key)
-            unique.append(s)
+        if key in seen_keys:
+            continue
+        w = _words(s)
+        is_dup = False
+        for prev in seen_word_sets:
+            if not w or not prev:
+                continue
+            if len(w & prev) / max(len(w), 1) >= 0.7:
+                is_dup = True
+                break
+        if is_dup:
+            continue
+        seen_keys.add(key)
+        seen_word_sets.append(w)
+        unique.append(s)
+
     if len(unique) < len(sentences):
-        ai_response = ". ".join(unique) + "."
-        logging.info(f"[BIZ] dedup applied, {len(sentences)} -> {len(unique)}")
+        ai_response = ". ".join(unique)
+        if not ai_response.endswith((".", "!", "?")):
+            ai_response += "."
+        logging.info(f"[BIZ] dedup: {len(sentences)} -> {len(unique)}")
 
     if len(ai_response) > 4000:
         ai_response = ai_response[:4000] + "..."
 
-    # --- SEND ---
+    # --- Отправка ---
     sent = False
 
     if bcid:
@@ -475,32 +455,21 @@ async def handle_message(message: types.Message):
             sent = True
             logging.info("[BIZ] sent via send_message + bcid")
         except Exception as e:
-            logging.error(
-                f"[BIZ] send_message+bcid FAILED: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
+            logging.error(f"[BIZ] send+bcid FAILED: {e}", exc_info=True)
 
     if not sent and bcid:
         try:
             await message.answer(ai_response, business_connection_id=bcid)
             sent = True
-            logging.info("[BIZ] sent via message.answer + bcid")
         except Exception as e:
-            logging.error(
-                f"[BIZ] message.answer+bcid FAILED: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
+            logging.error(f"[BIZ] answer+bcid FAILED: {e}", exc_info=True)
 
     if not sent:
         try:
             await message.answer(ai_response)
             sent = True
-            logging.info("[BIZ] sent via message.answer (no bcid)")
         except Exception as e:
-            logging.error(
-                f"[BIZ] message.answer no-bcid FAILED: {type(e).__name__}: {e}",
-                exc_info=True,
-            )
+            logging.error(f"[BIZ] answer FAILED: {e}", exc_info=True)
 
     if sent:
         new_history = (
@@ -511,11 +480,6 @@ async def handle_message(message: types.Message):
             ]
         )[-10:]
         _remember_history(history_key, new_history)
-
-        # В БД пишем только чужие сообщения
-        if not is_owner:
-            await save_conversation_message(user_id, "user", message.text)
-            await save_conversation_message(user_id, "assistant", ai_response)
 
 
 async def on_startup(dispatcher: Dispatcher):
